@@ -9,9 +9,34 @@ export async function onRequest(context) {
 
   const cursor = url.searchParams.get("cursor") || undefined;
   const prefix = url.searchParams.get("prefix") || undefined;
+  const storageFilter = url.searchParams.get("storage") || undefined; // 'kv', 'r2', or undefined for all
+  
   const value = await env.img_url.list({ limit, cursor, prefix });
 
-  return new Response(JSON.stringify(value), {
+  // 为每个文件添加存储类型标识
+  const keysWithStorageType = value.keys.map(key => {
+    const isR2 = key.name.startsWith('r2:');
+    return {
+      ...key,
+      metadata: {
+        ...key.metadata,
+        storageType: isR2 ? 'r2' : 'telegram'
+      }
+    };
+  });
+
+  // 如果指定了存储类型过滤
+  let filteredKeys = keysWithStorageType;
+  if (storageFilter === 'r2') {
+    filteredKeys = keysWithStorageType.filter(key => key.name.startsWith('r2:'));
+  } else if (storageFilter === 'kv' || storageFilter === 'telegram') {
+    filteredKeys = keysWithStorageType.filter(key => !key.name.startsWith('r2:'));
+  }
+
+  return new Response(JSON.stringify({
+    ...value,
+    keys: filteredKeys
+  }), {
     headers: { "Content-Type": "application/json" }
   });
 }

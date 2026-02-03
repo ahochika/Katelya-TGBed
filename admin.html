@@ -286,8 +286,8 @@
   </div>
   <el-footer class="footer">
           <div>Powered By Katelya-TGBed</div>
-          <a href="https://github.com/cf-pages/Telegraph-Image" target="_blank" rel="noopener noreferrer">
-            <div><i class="fa-brands fa-github"></i> Telegraph-Image</div>
+          <a href="https://github.com/katelya77/Katelya-TGBed" target="_blank" rel="noopener noreferrer">
+            <div><i class="fa-brands fa-github"></i> Katelya-TGBed</div>
           </a>
         </el-footer>
       </el-main>
@@ -492,14 +492,26 @@
       formattedFileDetails(item) {
         const metadata = item.metadata;
         const timestamp = new Date(metadata.TimeStamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+        const storageType = item.name.startsWith('r2:') ? 'R2 存储' : 'Telegram';
+        const storageColor = item.name.startsWith('r2:') ? '#409eff' : '#67c23a';
+        const fileSize = metadata.fileSize ? this.formatFileSize(metadata.fileSize) : '未知';
         return `
           <div style="text-align: left; padding: 5px;">
             <div><strong>ID：</strong>${item.name}</div>
             <div><strong>文件名：</strong>${metadata.fileName || item.name}</div>
+            <div><strong>文件大小：</strong>${fileSize}</div>
+            <div><strong>存储位置：</strong><span style="color: ${storageColor}; font-weight: bold;">${storageType}</span></div>
             <div><strong>上传时间：</strong>${timestamp}</div>
-            <div><strong>元数据：</strong>${JSON.stringify(metadata)}</div>
+            <div><strong>状态：</strong>${metadata.ListType || 'None'}</div>
           </div>
         `;
+      },
+      formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
       },
       calculatePageSize() {  // 设置页面大小
         const config = {
