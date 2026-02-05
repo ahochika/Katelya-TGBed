@@ -558,7 +558,7 @@
           fetch(url, opts)
             .then(r => r.json())
             .then(result => {
-              const files = result.keys || [];
+          const files = (result.keys || []).filter(file => !file.name?.startsWith('session:'));
               const mapped = files.map(file => ({
                 ...file,
                 selected: false,
@@ -740,7 +740,7 @@
           fetch("./api/manage/list?limit=100", { method: 'GET', credentials: 'include' })
             .then(response => response.json())
             .then(result => {
-              const files = result.keys || [];
+              const files = (result.keys || []).filter(file => !file.name?.startsWith('session:'));
               this.tableData = files.map(file => ({
                 ...file,
                 selected: false,
@@ -1345,7 +1345,7 @@
           .then(response => response.json())
           .then(result => {
             console.log("result: ", result);
-            const files = result.keys || [];
+            const files = (result.keys || []).filter(file => !file.name?.startsWith('session:'));
             this.nextCursor = result.list_complete ? null : result.cursor;
             this.tableData = files.map(file => ({
               ...file,

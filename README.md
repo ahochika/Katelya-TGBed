@@ -12,7 +12,6 @@
 ![GitHub forks](https://img.shields.io/github/forks/katelya77/Katelya-TGBed?style=flat-square)
 ![GitHub license](https://img.shields.io/github/license/katelya77/Katelya-TGBed?style=flat-square)
 
-
 </div>
 
 ---
