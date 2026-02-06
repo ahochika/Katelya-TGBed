@@ -143,7 +143,16 @@ export async function onRequest(context) {
             }
         }
     }
-    
+
+    // KV 门禁：如果 KV 可用但未找到文件记录，直接返回 404
+    // 阻止已删除文件通过 CDN 缓存或 Telegram 直链继续被访问
+    if (env.img_url && (!record || !record.metadata)) {
+        const headers = new Headers();
+        addCorsHeaders(headers);
+        headers.set('Cache-Control', 'no-store, max-age=0');
+        return new Response('File not found', { status: 404, headers });
+    }
+
     // 如果是 R2 存储，从 R2 获取文件
     if (isR2Storage && env.R2_BUCKET) {
         const r2Key = record?.metadata?.r2Key || fileId;
@@ -214,30 +223,7 @@ export async function onRequest(context) {
     // Log response details
     console.log('Response status:', response.status, 'Range requested:', !!rangeHeader);
 
-    // Allow the admin page to directly view the image
-    const isAdmin = request.headers.get('Referer')?.includes(`${url.origin}/admin`);
-    if (isAdmin) {
-        return createStreamResponse(response, fileName, mimeType, rangeHeader);
-    }
-
-    // Check if KV storage is available
-    if (!env.img_url) {
-        console.log("KV storage not available, returning file directly");
-        return createStreamResponse(response, fileName, mimeType, rangeHeader);
-    }
-
-    // The following code executes only if KV is available
-    // 如果之前没有找到记录，尝试重新获取
-    if (!record || !record.metadata) {
-        record = await env.img_url.getWithMetadata(params.id);
-    }
-    
-    if (!record || !record.metadata) {
-        const headers = new Headers();
-        addCorsHeaders(headers);
-        return new Response('File not found', { status: 404, headers });
-    }
-
+    // KV 记录已在前面的门禁中确认存在，直接使用
     const metadata = {
         ListType: record.metadata.ListType || "None",
         Label: record.metadata.Label || "None",

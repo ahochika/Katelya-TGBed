@@ -706,15 +706,18 @@
       justify-content: center;
       gap: 8px;
       opacity: 0;
+      pointer-events: none;
       transition: opacity 0.3s;
     }
 
     .history-item:hover .history-item-overlay {
       opacity: 1;
+      pointer-events: auto;
     }
 
     .history-item.selected .history-item-overlay {
       opacity: 1;
+      pointer-events: auto;
       background: rgba(138, 75, 255, 0.7);
     }
 
@@ -1881,10 +1884,14 @@
         },
 
         // 复制链接
-        copyLink(file) {
-          const link = this.formatLink(file);
-          this.copyToClipboard(link);
-          this.showToast('链接已复制', 'success');
+        async copyLink(file) {
+          try {
+            const link = this.formatLink(file);
+            await this.copyToClipboard(link);
+            this.showToast('链接已复制', 'success');
+          } catch (err) {
+            this.showToast('复制失败，请手动复制', 'error');
+          }
         },
 
         // 复制选中链接
@@ -2350,17 +2357,25 @@
           return 'fas fa-file';
         },
 
-        copyToClipboard(text) {
-          if (navigator.clipboard) {
-            navigator.clipboard.writeText(text);
-          } else {
-            const textarea = document.createElement('textarea');
-            document.body.appendChild(textarea);
-            textarea.value = text;
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
+        async copyToClipboard(text) {
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(text);
+              return;
+            }
+          } catch (err) {
+            // Clipboard API 失败（权限不足或页面无焦点），使用 fallback
           }
+          // Fallback: execCommand
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
         },
 
         showToast(message, type = 'info') {

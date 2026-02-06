@@ -24,6 +24,80 @@
       align-items: center;
       justify-content: center;
     }
+    /* 预览弹窗 */
+    .preview-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.92);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 20px;
+    }
+    .preview-modal img {
+      max-width: 90%;
+      max-height: 75vh;
+      border-radius: 8px;
+      object-fit: contain;
+    }
+    .preview-modal .iframe-container {
+      width: 90vw;
+      height: 75vh;
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+    }
+    .preview-modal .iframe-container iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .preview-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 48px;
+      height: 48px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      color: white;
+      font-size: 1.5em;
+      cursor: pointer;
+      transition: all 0.3s;
+      z-index: 10001;
+    }
+    .preview-close:hover {
+      background: rgba(255, 255, 255, 0.35);
+      transform: rotate(90deg);
+    }
+    .preview-toolbar {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 20px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+    }
+    .preview-filename {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 0.9em;
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .preview-btns {
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -311,6 +385,31 @@
         </el-footer>
       </el-main>
     </el-container>
+    <!-- 预览弹窗 - 模态框模式（不跳转新标签页） -->
+    <div class="preview-modal" v-if="previewData" @click="closePreview">
+      <button class="preview-close" @click.stop="closePreview">
+        <i class="fas fa-times"></i>
+      </button>
+      <!-- 原生图片预览 -->
+      <img v-if="previewData.type === 'native-image'" :src="previewData.url" @click.stop>
+      <!-- iframe 预览（视频/音频/文档） -->
+      <div v-else-if="previewData.type === 'iframe'" class="iframe-container" @click.stop>
+        <iframe
+          ref="previewIframe"
+          :src="previewData.iframeUrl"
+          allow="autoplay; fullscreen; encrypted-media"
+          allowfullscreen>
+        </iframe>
+      </div>
+      <!-- 底部操作栏 -->
+      <div class="preview-toolbar" @click.stop>
+        <span class="preview-filename">{{ previewData.fileName }}</span>
+        <div class="preview-btns">
+          <el-button size="small" type="primary" @click="copyPreviewLink"><i class="fas fa-copy"></i> 复制直链</el-button>
+          <el-button size="small" @click="downloadPreviewFile"><i class="fas fa-download"></i> 下载</el-button>
+        </div>
+      </div>
+    </div>
     <!-- 底部悬浮批量操作栏 -->
     <transition name="batch-float">
       <div class="batch-toolbar"
@@ -402,6 +501,7 @@
         offsetX: 0,
         offsetY: 0
       },
+      previewData: null,  // 模态框预览数据
       quickWebsites: [
         { name: '上传中心', url: './', icon: 'fas fa-cloud-upload-alt' },
         { name: '图片浏览', url: './gallery.html', icon: 'fas fa-images' },
@@ -597,7 +697,11 @@
         }
         if (key === 'escape') {
           event.preventDefault();
-          this.clearSelection();
+          if (this.previewData) {
+            this.closePreview();
+          } else {
+            this.clearSelection();
+          }
         }
       },
       
@@ -610,26 +714,67 @@
         return 'document';  // 默认归类为文档
       },
       
-      // 打开预览 - 使用 Blog 统一媒体预览服务
+      // 打开预览 - 使用模态框（与首页保持一致，不跳转新标签页）
       openPreview(item) {
         const fileName = item.metadata?.fileName || item.name;
         const fileUrl = `${this.baseURL}/file/${item.name}`;
         const fileType = this.getActualFileType(item.name);
-        
-        // 图片类型 - 使用 el-image 的预览功能（已在模板中处理）
+
+        // 图片类型 - 原生图片 Lightbox
         if (fileType === 'image') {
-          // 图片已通过 el-image 的 preview-src-list 处理
+          this.previewData = {
+            type: 'native-image',
+            url: fileUrl,
+            fileName: fileName,
+            fileKey: item.name
+          };
           return;
         }
-        
-        // 视频/音频/文档类型 - 使用 Blog Preview iframe
+
+        // 视频/音频/文档类型 - iframe 预览
         const PREVIEW_SERVICE_BASE = 'https://www.katelya.eu.org';
         const targetUrl = encodeURIComponent(fileUrl);
         const targetTitle = encodeURIComponent(fileName);
-        const previewUrl = `${PREVIEW_SERVICE_BASE}/preview?url=${targetUrl}&title=${targetTitle}&autoplay=1`;
-        
-        // 在新窗口打开预览
-        window.open(previewUrl, '_blank');
+        const iframeSrc = `${PREVIEW_SERVICE_BASE}/preview?url=${targetUrl}&title=${targetTitle}&autoplay=1`;
+
+        this.previewData = {
+          type: 'iframe',
+          iframeUrl: iframeSrc,
+          url: fileUrl,
+          fileName: fileName,
+          fileKey: item.name
+        };
+      },
+      // 关闭预览弹窗
+      closePreview() {
+        if (this.$refs.previewIframe) {
+          this.$refs.previewIframe.src = 'about:blank';
+        }
+        this.previewData = null;
+      },
+      // 复制预览文件的直链
+      copyPreviewLink() {
+        if (!this.previewData) return;
+        const link = this.previewData.url;
+        const fallback = () => {
+          this.copyToClipboardFallback(link);
+          this.$message.success('直链已复制');
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(link)
+            .then(() => this.$message.success('直链已复制'))
+            .catch(() => fallback());
+        } else {
+          fallback();
+        }
+      },
+      // 下载预览中的文件
+      downloadPreviewFile() {
+        if (!this.previewData) return;
+        const a = document.createElement('a');
+        a.href = this.previewData.url;
+        a.download = this.previewData.fileName;
+        a.click();
       },
       
       async handleLogout() {  // 退出登录
