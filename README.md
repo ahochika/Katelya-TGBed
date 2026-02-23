@@ -160,7 +160,7 @@
 
 通过 Discord 频道存储文件，支持 Webhook 和 Bot 两种方式。
 
-> **注意：** Discord 附件 URL 会在约 24 小时后过期。本项目通过代理方式提供文件下载，每次请求时自动刷新 URL。因此即使使用 Webhook 上传，也需要配置 Bot Token 用于文件获取。
+> **注意：** Discord 附件 URL 会在约 24 小时后过期。本项目通过代理方式提供文件下载，每次请求时自动刷新 URL。当前版本会优先使用 Bot 查询消息，并在失败时自动回退到 Webhook 查询。若同时配置 Bot + Webhook，请确保 Bot 对 Webhook 所在频道具备读取权限。
 
 **环境变量：**
 
@@ -186,6 +186,13 @@
 4. 使用生成的 URL 邀请 Bot 到你的服务器
 5. 在 Cloudflare Pages 添加 `DISCORD_BOT_TOKEN` 和 `DISCORD_CHANNEL_ID`
 6. 重新部署
+
+**故障排查（`File not found on Discord`）：**
+
+1. 确认 `DISCORD_WEBHOOK_URL` 指向的频道，Bot 也能访问（频道不一致会导致上传成功但直链失败）。
+2. Bot 至少需要 `View Channel` + `Read Message History` 权限；若使用 Bot 上传，还需要 `Send Messages` + `Attach Files`。
+3. 修改环境变量后必须重新部署 Cloudflare Pages（仅保存变量不会即时生效）。
+4. 打开 `/api/status` 检查 Discord 状态是否显示为 `bot`、`webhook` 或 `bot+webhook`。
 
 **限制：**
 - 无 Boost 服务器：25MB/文件

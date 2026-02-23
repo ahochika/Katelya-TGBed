@@ -1,31 +1,64 @@
-/**
- * Discord 存储工具模块
- * 支持 Webhook 和 Bot 两种上传方式
- * 文件通过代理方式提供下载（Discord CDN URL 会过期）
- */
+const DISCORD_API_BASE = 'https://discord.com/api/v10';
 
 /**
- * 上传文件到 Discord
- * 优先使用 Webhook，其次使用 Bot
- * @param {ArrayBuffer} fileBuffer - 文件内容
- * @param {string} filename - 文件名
- * @param {string} contentType - MIME 类型
- * @param {object} env - 环境变量
- * @returns {{ success, channelId, messageId, attachmentId, error }}
+ * 上传文件到 Discord。
+ * 策略：优先 Bot（与读取链路一致），失败时自动回退 Webhook。
  */
 export async function uploadToDiscord(fileBuffer, filename, contentType, env) {
-    if (env.DISCORD_WEBHOOK_URL) {
-        return await uploadViaWebhook(fileBuffer, filename, contentType, env.DISCORD_WEBHOOK_URL);
-    }
+    const errors = [];
+
     if (env.DISCORD_BOT_TOKEN && env.DISCORD_CHANNEL_ID) {
-        return await uploadViaBot(fileBuffer, filename, contentType, env.DISCORD_BOT_TOKEN, env.DISCORD_CHANNEL_ID);
+        const botResult = await uploadViaBot(
+            fileBuffer,
+            filename,
+            contentType,
+            env.DISCORD_BOT_TOKEN,
+            env.DISCORD_CHANNEL_ID
+        );
+        if (botResult.success) return { ...botResult, mode: 'bot' };
+        errors.push(`Bot: ${botResult.error}`);
     }
-    return { success: false, error: 'Discord 未配置 Webhook URL 或 Bot Token' };
+
+    if (env.DISCORD_WEBHOOK_URL) {
+        const webhookResult = await uploadViaWebhook(fileBuffer, filename, contentType, env.DISCORD_WEBHOOK_URL);
+        if (webhookResult.success) return { ...webhookResult, mode: 'webhook' };
+        errors.push(`Webhook: ${webhookResult.error}`);
+    }
+
+    if (errors.length > 0) {
+        return { success: false, error: errors.join(' | ') };
+    }
+
+    return { success: false, error: 'Discord 未配置（需要 Bot 或 Webhook）' };
 }
 
-/**
- * 通过 Webhook 上传
- */
+function buildWebhookMessageUrl(webhookUrl, messageId = null) {
+    const base = new URL(webhookUrl);
+    const path = base.pathname.endsWith('/') ? base.pathname.slice(0, -1) : base.pathname;
+    const target = messageId
+        ? new URL(`${base.origin}${path}/messages/${messageId}`)
+        : new URL(`${base.origin}${path}`);
+
+    // 保留 thread_id 等参数，移除 wait，避免污染消息查询请求。
+    base.searchParams.forEach((value, key) => {
+        if (key !== 'wait') target.searchParams.set(key, value);
+    });
+    return target;
+}
+
+function getAttachmentInfo(message) {
+    const attachment = message?.attachments?.[0];
+    if (!attachment) return null;
+
+    return {
+        url: attachment.url,
+        filename: attachment.filename,
+        size: attachment.size,
+        contentType: attachment.content_type,
+        attachmentId: attachment.id
+    };
+}
+
 async function uploadViaWebhook(fileBuffer, filename, contentType, webhookUrl) {
     try {
         const formData = new FormData();
@@ -35,8 +68,10 @@ async function uploadViaWebhook(fileBuffer, filename, contentType, webhookUrl) {
             attachments: [{ id: 0, filename }]
         }));
 
-        // ?wait=true 确保返回完整消息对象
-        const response = await fetch(`${webhookUrl}?wait=true`, {
+        const uploadUrl = buildWebhookMessageUrl(webhookUrl);
+        uploadUrl.searchParams.set('wait', 'true');
+
+        const response = await fetch(uploadUrl.toString(), {
             method: 'POST',
             body: formData
         });
@@ -47,28 +82,25 @@ async function uploadViaWebhook(fileBuffer, filename, contentType, webhookUrl) {
         }
 
         const message = await response.json();
-        const attachment = message.attachments?.[0];
-
-        if (!attachment) {
-            return { success: false, error: '未获取到附件信息' };
+        const attachmentInfo = getAttachmentInfo(message);
+        if (!attachmentInfo) {
+            return { success: false, error: '未获取到 Discord 附件信息' };
         }
 
         return {
             success: true,
             channelId: message.channel_id,
             messageId: message.id,
-            attachmentId: attachment.id,
-            filename: attachment.filename,
-            size: attachment.size,
+            attachmentId: attachmentInfo.attachmentId,
+            filename: attachmentInfo.filename,
+            size: attachmentInfo.size,
+            sourceUrl: attachmentInfo.url
         };
     } catch (error) {
         return { success: false, error: error.message };
     }
 }
 
-/**
- * 通过 Bot 上传
- */
 async function uploadViaBot(fileBuffer, filename, contentType, botToken, channelId) {
     try {
         const formData = new FormData();
@@ -79,7 +111,7 @@ async function uploadViaBot(fileBuffer, filename, contentType, botToken, channel
         }));
 
         const response = await fetch(
-            `https://discord.com/api/v10/channels/${channelId}/messages`,
+            `${DISCORD_API_BASE}/channels/${channelId}/messages`,
             {
                 method: 'POST',
                 headers: { 'Authorization': `Bot ${botToken}` },
@@ -93,126 +125,176 @@ async function uploadViaBot(fileBuffer, filename, contentType, botToken, channel
         }
 
         const message = await response.json();
-        const attachment = message.attachments?.[0];
-
-        if (!attachment) {
-            return { success: false, error: '未获取到附件信息' };
+        const attachmentInfo = getAttachmentInfo(message);
+        if (!attachmentInfo) {
+            return { success: false, error: '未获取到 Discord 附件信息' };
         }
 
         return {
             success: true,
             channelId: message.channel_id,
             messageId: message.id,
-            attachmentId: attachment.id,
-            filename: attachment.filename,
-            size: attachment.size,
+            attachmentId: attachmentInfo.attachmentId,
+            filename: attachmentInfo.filename,
+            size: attachmentInfo.size,
+            sourceUrl: attachmentInfo.url
         };
     } catch (error) {
         return { success: false, error: error.message };
     }
 }
 
-/**
- * 获取 Discord 文件的最新 URL（通过消息 API 刷新）
- * Discord 附件 URL 约 24 小时过期，需要重新获取
- */
-export async function getDiscordFileUrl(channelId, messageId, env) {
-    const botToken = env.DISCORD_BOT_TOKEN;
-    if (!botToken) {
-        throw new Error('需要 DISCORD_BOT_TOKEN 才能获取文件');
-    }
-
+async function getDiscordFileViaBot(channelId, messageId, botToken) {
     const response = await fetch(
-        `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
+        `${DISCORD_API_BASE}/channels/${channelId}/messages/${messageId}`,
         { headers: { 'Authorization': `Bot ${botToken}` } }
     );
 
     if (!response.ok) {
         if (response.status === 404) return null;
-        throw new Error(`Discord API error: ${response.status}`);
+        throw new Error(`Discord Bot API error: ${response.status}`);
     }
 
     const message = await response.json();
-    const attachment = message.attachments?.[0];
+    return getAttachmentInfo(message);
+}
 
-    if (!attachment) return null;
+async function getDiscordFileViaWebhook(messageId, webhookUrl) {
+    const messageUrl = buildWebhookMessageUrl(webhookUrl, messageId);
+    const response = await fetch(messageUrl.toString());
 
-    return {
-        url: attachment.url,
-        filename: attachment.filename,
-        size: attachment.size,
-        contentType: attachment.content_type
-    };
+    if (!response.ok) {
+        if (response.status === 404) return null;
+        throw new Error(`Discord Webhook API error: ${response.status}`);
+    }
+
+    const message = await response.json();
+    return getAttachmentInfo(message);
 }
 
 /**
- * 删除 Discord 消息（及其附件）
+ * 获取 Discord 文件可访问 URL。
+ * 先尝试 Bot 查询，再回退到 Webhook 查询，解决“上传成功但读取失败”链路不一致问题。
+ */
+export async function getDiscordFileUrl(channelId, messageId, env) {
+    const lookupErrors = [];
+    let attempted = false;
+
+    if (env.DISCORD_BOT_TOKEN && channelId) {
+        attempted = true;
+        try {
+            const file = await getDiscordFileViaBot(channelId, messageId, env.DISCORD_BOT_TOKEN);
+            if (file) return file;
+        } catch (error) {
+            lookupErrors.push(`bot=${error.message}`);
+        }
+    }
+
+    if (env.DISCORD_WEBHOOK_URL) {
+        attempted = true;
+        try {
+            const file = await getDiscordFileViaWebhook(messageId, env.DISCORD_WEBHOOK_URL);
+            if (file) return file;
+        } catch (error) {
+            lookupErrors.push(`webhook=${error.message}`);
+        }
+    }
+
+    if (!attempted) {
+        throw new Error('未配置 DISCORD_BOT_TOKEN 或 DISCORD_WEBHOOK_URL，无法获取 Discord 文件');
+    }
+
+    if (lookupErrors.length > 0) {
+        throw new Error(`Discord 文件查询失败: ${lookupErrors.join(' | ')}`);
+    }
+
+    return null;
+}
+
+/**
+ * 删除 Discord 消息（附件随消息删除）。
  */
 export async function deleteDiscordMessage(channelId, messageId, env) {
     const botToken = env.DISCORD_BOT_TOKEN;
-    if (!botToken) {
-        console.warn('No DISCORD_BOT_TOKEN, cannot delete Discord message');
-        return false;
+    if (botToken) {
+        try {
+            const response = await fetch(
+                `${DISCORD_API_BASE}/channels/${channelId}/messages/${messageId}`,
+                {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bot ${botToken}` }
+                }
+            );
+            return response.ok || response.status === 204;
+        } catch (error) {
+            console.error('Discord bot delete error:', error);
+        }
     }
 
-    try {
-        const response = await fetch(
-            `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
-            {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bot ${botToken}` }
-            }
-        );
-
-        return response.ok || response.status === 204;
-    } catch (error) {
-        console.error('Discord delete error:', error);
-        return false;
+    if (env.DISCORD_WEBHOOK_URL) {
+        try {
+            const messageUrl = buildWebhookMessageUrl(env.DISCORD_WEBHOOK_URL, messageId);
+            const response = await fetch(messageUrl.toString(), { method: 'DELETE' });
+            return response.ok || response.status === 204;
+        } catch (error) {
+            console.error('Discord webhook delete error:', error);
+        }
     }
+
+    return false;
 }
 
 /**
- * 检查 Discord 连接状态
+ * 检查 Discord 连接状态。
  */
 export async function checkDiscordConnection(env) {
-    // 检查 Webhook
+    let webhookInfo = null;
+    let botInfo = null;
+
     if (env.DISCORD_WEBHOOK_URL) {
         try {
-            // GET webhook URL 返回 webhook 信息
             const response = await fetch(env.DISCORD_WEBHOOK_URL);
             if (response.ok) {
                 const data = await response.json();
-                return {
-                    connected: true,
+                webhookInfo = {
                     mode: 'webhook',
                     name: data.name,
                     channelId: data.channel_id
                 };
             }
         } catch (e) {
-            // fall through
+            // ignore
         }
     }
 
-    // 检查 Bot
     if (env.DISCORD_BOT_TOKEN) {
         try {
-            const response = await fetch('https://discord.com/api/v10/users/@me', {
+            const response = await fetch(`${DISCORD_API_BASE}/users/@me`, {
                 headers: { 'Authorization': `Bot ${env.DISCORD_BOT_TOKEN}` }
             });
             if (response.ok) {
                 const data = await response.json();
-                return {
-                    connected: true,
+                botInfo = {
                     mode: 'bot',
                     name: data.username,
                     channelId: env.DISCORD_CHANNEL_ID
                 };
             }
         } catch (e) {
-            // fall through
+            // ignore
         }
     }
 
+    if (webhookInfo && botInfo) {
+        return {
+            connected: true,
+            mode: 'bot+webhook',
+            name: `${botInfo.name} / ${webhookInfo.name}`,
+            channelId: botInfo.channelId || webhookInfo.channelId
+        };
+    }
+
+    if (botInfo) return { connected: true, ...botInfo };
+    if (webhookInfo) return { connected: true, ...webhookInfo };
     return { connected: false };
 }

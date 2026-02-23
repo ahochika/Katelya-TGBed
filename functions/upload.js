@@ -340,6 +340,8 @@ async function uploadToDiscordStorage(file, fileName, fileExtension, env) {
                     discordChannelId: result.channelId,
                     discordMessageId: result.messageId,
                     discordAttachmentId: result.attachmentId,
+                    discordUploadMode: result.mode,
+                    discordSourceUrl: result.sourceUrl,
                 }
             });
         }

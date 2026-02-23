@@ -121,6 +121,8 @@ export async function onRequestPost(context) {
       extraMetadata.discordChannelId = discordResult.channelId;
       extraMetadata.discordMessageId = discordResult.messageId;
       extraMetadata.discordAttachmentId = discordResult.attachmentId;
+      extraMetadata.discordUploadMode = discordResult.mode;
+      extraMetadata.discordSourceUrl = discordResult.sourceUrl;
     } else if (storageType === 'huggingface') {
       if (!env.HF_TOKEN || !env.HF_REPO) {
         return new Response(JSON.stringify({ error: 'HuggingFace 未配置，无法完成上传' }), {

@@ -39,7 +39,7 @@ export async function onRequest(context) {
   
   try {
     // 尝试多种前缀查找（兼容新旧 Key 格式）
-    const prefixes = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', ''];
+    const prefixes = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', ''];
     let record = null;
     let foundKey = null;
     
