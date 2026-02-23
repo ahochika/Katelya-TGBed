@@ -34,7 +34,7 @@ export async function onRequestPost(context) {
   let update;
   try {
     update = await request.json();
-  } catch (error) {
+  } catch {
     return jsonResponse({ ok: false, error: 'Invalid JSON body.' }, 400);
   }
 
@@ -85,9 +85,7 @@ export async function onRequestPost(context) {
   const chatId = message?.chat?.id;
 
   if (chatId) {
-    const replyText =
-      `鏂囦欢宸叉帴鏀讹紝鐩撮摼濡備笅锛歕n${directLink}\n\n` +
-      `File ID: ${media.fileId}`;
+    const replyText = `File received. Direct link:\n${directLink}\n\nFile ID: ${media.fileId}`;
 
     await sendTelegramMessage(
       {
@@ -141,5 +139,3 @@ function jsonResponse(body, status = 200) {
     headers: { 'Content-Type': 'application/json' },
   });
 }
-
-
